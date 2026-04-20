@@ -199,7 +199,7 @@ def fetch_yahoo_data(symbol, period="1y"):
                 
                 if is_rate_limit:
                     st.warning(f"⏳ Rate limited (attempt {attempt + 1}/{max_retries}). Waiting {wait_time}s before retry...")
-                    time.sleep(wait_time)
+                    time.sleep(wait_time)rate still limited is there any other way?, can you remove retry messages,
                 else:
                     # For other errors, retry but show warning
                     st.warning(f"⚠️ Error fetching data (attempt {attempt + 1}/{max_retries}). Retrying in {wait_time}s...")
