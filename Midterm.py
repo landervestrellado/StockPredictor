@@ -214,8 +214,13 @@ if symbol:
     if hist_df is not None and stock_info is not None:
         # Standardize column names
         hist_df = hist_df.reset_index()
-        hist_df.columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'Dividends', 'Stock Splits']
+        # Ensure 'Date' column exists (it may be named differently after reset_index)
+        if 'Date' not in hist_df.columns and 'Datetime' in hist_df.columns:
+            hist_df.rename(columns={'Datetime': 'Date'}, inplace=True)
+        elif 'Date' not in hist_df.columns:
+            hist_df.rename(columns={hist_df.columns[0]: 'Date'}, inplace=True)
         hist_df.set_index('Date', inplace=True)
+        # Keep only the columns we need (works with both download() and Ticker.history())
         hist_df = hist_df[['Open', 'High', 'Low', 'Close', 'Volume']]
         
         # Check if stock is in PHP (PSE stocks) or needs conversion
