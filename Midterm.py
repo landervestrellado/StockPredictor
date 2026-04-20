@@ -6,7 +6,6 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 from datetime import timedelta, datetime
 import requests
-import time
 
 # MUST BE FIRST
 st.set_page_config(page_title="Stock Price App", layout="wide")
@@ -31,24 +30,18 @@ if 'show_sell' not in st.session_state:
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 
 def get_live_exchange_rate():
-    """Fetch live USD to PHP exchange rate from Yahoo Finance with retry logic"""
-    max_retries = 3
-    retry_delay = 1  # Start with 1 second
-    
-    for attempt in range(max_retries):
-        try:
-            # Use Yahoo Finance for consistency
-            forex = yf.Ticker("USDPHP=X")
-            rate = forex.history(period="1d")['Close'].iloc[-1]
-            return round(rate, 3)
-        except Exception as e:
-            if attempt < max_retries - 1:
-                wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
-                st.warning(f"Attempt {attempt + 1}/{max_retries}: Could not fetch live rate. Retrying in {wait_time}s...")
-                time.sleep(wait_time)
-            else:
-                st.warning(f"Could not fetch live rate after {max_retries} attempts: {e}. Using fallback rate.")
-                return 58.938  # Fallback rate
+    """Fetch live USD to PHP exchange rate using yf.download()"""
+    try:
+        data = yf.download("USDPHP=X", period="5d", progress=False)
+        if data is not None and not data.empty:
+            rate = data['Close'].iloc[-1]
+            # Handle case where rate might be a Series
+            if hasattr(rate, 'iloc'):
+                rate = rate.iloc[0]
+            return round(float(rate), 3)
+        return 58.938  # Fallback rate
+    except Exception:
+        return 58.938  # Fallback rate
 
 USD_TO_PHP = get_live_exchange_rate()
 
@@ -168,46 +161,33 @@ def is_pse_stock(symbol):
 
 @st.cache_data(ttl=3600)
 def fetch_yahoo_data(symbol, period="1y"):
-    """Fetch stock data from Yahoo Finance with retry logic for rate limiting"""
-    max_retries = 4
-    retry_delay = 2  # Start with 2 seconds
-    last_error = None
-    
-    for attempt in range(max_retries):
+    """Fetch stock data from Yahoo Finance using yf.download() to avoid rate limits"""
+    try:
+        # Use yf.download() instead of Ticker.history() - less rate limiting
+        hist = yf.download(symbol, period=period, progress=False)
+        
+        if hist is None or hist.empty:
+            return None, None, False
+        
+        # Flatten MultiIndex columns if present (yf.download returns MultiIndex for single ticker)
+        if isinstance(hist.columns, pd.MultiIndex):
+            hist.columns = hist.columns.get_level_values(0)
+        
+        # Get stock info separately (with fallback)
         try:
             stock = yf.Ticker(symbol)
-            hist = stock.history(period=period)
-            
-            if hist.empty:
-                return None, None, False
-            
             info = stock.info
-            
-            # Check if it's a Philippine stock
-            is_pse = symbol.upper().endswith('.PS')
-            
-            return hist, info, is_pse
-            
-        except Exception as e:
-            last_error = str(e)
-            
-            # Check if it's a rate limiting error
-            is_rate_limit = "Too Many Requests" in last_error or "429" in last_error or "HTTPError" in last_error
-            
-            if attempt < max_retries - 1:
-                wait_time = retry_delay * (2 ** attempt)  # Exponential backoff: 2s, 4s, 8s
-                
-                if is_rate_limit:
-                    st.warning(f"⏳ Rate limited (attempt {attempt + 1}/{max_retries}). Waiting {wait_time}s before retry...")
-                    time.sleep(wait_time)rate still limited is there any other way?, can you remove retry messages,
-                else:
-                    # For other errors, retry but show warning
-                    st.warning(f"⚠️ Error fetching data (attempt {attempt + 1}/{max_retries}). Retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-            else:
-                # Last attempt failed
-                st.error(f"Error fetching Yahoo data: {last_error}")
-                return None, None, False
+        except Exception:
+            # If info fails, use minimal fallback info
+            info = {'longName': symbol.upper(), 'sector': 'N/A', 'industry': 'N/A'}
+        
+        # Check if it's a Philippine stock
+        is_pse = symbol.upper().endswith('.PS')
+        
+        return hist, info, is_pse
+        
+    except Exception:
+        return None, None, False
 
 def fetch_data_hybrid(symbol):
     """Smart fetch: automatically choose the right API"""
