@@ -168,23 +168,46 @@ def is_pse_stock(symbol):
 
 @st.cache_data(ttl=3600)
 def fetch_yahoo_data(symbol, period="1y"):
-    """Fetch stock data from Yahoo Finance"""
-    try:
-        stock = yf.Ticker(symbol)
-        hist = stock.history(period=period)
-        
-        if hist.empty:
-            return None, None, False
-        
-        info = stock.info
-        
-        # Check if it's a Philippine stock
-        is_pse = symbol.upper().endswith('.PS')
-        
-        return hist, info, is_pse
-    except Exception as e:
-        st.error(f"Error fetching Yahoo data: {e}")
-        return None, None, False
+    """Fetch stock data from Yahoo Finance with retry logic for rate limiting"""
+    max_retries = 4
+    retry_delay = 2  # Start with 2 seconds
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            stock = yf.Ticker(symbol)
+            hist = stock.history(period=period)
+            
+            if hist.empty:
+                return None, None, False
+            
+            info = stock.info
+            
+            # Check if it's a Philippine stock
+            is_pse = symbol.upper().endswith('.PS')
+            
+            return hist, info, is_pse
+            
+        except Exception as e:
+            last_error = str(e)
+            
+            # Check if it's a rate limiting error
+            is_rate_limit = "Too Many Requests" in last_error or "429" in last_error or "HTTPError" in last_error
+            
+            if attempt < max_retries - 1:
+                wait_time = retry_delay * (2 ** attempt)  # Exponential backoff: 2s, 4s, 8s
+                
+                if is_rate_limit:
+                    st.warning(f"⏳ Rate limited (attempt {attempt + 1}/{max_retries}). Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                else:
+                    # For other errors, retry but show warning
+                    st.warning(f"⚠️ Error fetching data (attempt {attempt + 1}/{max_retries}). Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+            else:
+                # Last attempt failed
+                st.error(f"Error fetching Yahoo data: {last_error}")
+                return None, None, False
 
 def fetch_data_hybrid(symbol):
     """Smart fetch: automatically choose the right API"""
